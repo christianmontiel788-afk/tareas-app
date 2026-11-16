@@ -88,6 +88,7 @@ audio{width:100%;margin-top:10px}
 .toast.out{opacity:0}
 @keyframes up{from{transform:translateY(20px);opacity:0}to{transform:none;opacity:1}}
 @keyframes fade{from{opacity:0}to{opacity:1}}
+.dia-h{background:var(--card);border:1px solid var(--edge);border-radius:12px;padding:10px 14px;margin:12px 0}.dia-h h3{font-family:var(--hand);font-size:26px;color:var(--blue);margin:0 0 4px}.hrow{padding:8px 0;border-top:1px dashed var(--edge)}.hn{font-weight:600}.hrow small{color:var(--soft);margin-left:8px}.ht{font-size:13px;color:var(--blue);margin-top:3px}.img.sm{height:160px;margin:0 0 10px}
 </style>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -108,7 +109,19 @@ const KEY='tareas-app-v1';
 let DB={};
 function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return {}}}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){toast('No pude guardar en este navegador')}}
-function initDB(){DB=load();DB.sched=DB.sched||{};DB.log=DB.log||{};DB.wa=DB.wa||[];DB.cand=DB.cand||[]}
+const PERIODS=[['06:50','07:30'],['07:30','08:10'],['08:10','08:50'],['08:50','09:30'],['09:50','10:30'],['10:30','11:10'],['11:10','11:50'],['11:50','12:30']];
+const SEED={
+ 1:['Emprendimiento y Gestión','Educación para la Ciudadanía','Química','Matemática','Lengua y Literatura','Programación y Base de Datos','Programación y Base de Datos','Soporte Técnico'],
+ 2:['Física','Biología','Química','Matemática','Educación Cultural y Artística','Diseño y Desarrollo Web','Sistema Operativo y Redes','Sistema Operativo y Redes'],
+ 3:['Soporte Técnico','Historia','Educación Cultural y Artística','Inglés','Inglés','Educación para la Ciudadanía','Filosofía','Sistema Operativo y Redes'],
+ 4:['Inglés','Ética y Acompañamiento Integral en el Aula','Diseño y Desarrollo Web','Biología','Programación y Base de Datos','Educación Física','Filosofía','Lengua y Literatura'],
+ 5:['Emprendimiento y Gestión','Matemática','Física','Biología','Lengua y Literatura','Historia','Educación Física','Sistema Operativo y Redes']
+};
+function initDB(){
+  DB=load();DB.log=DB.log||{};DB.wa=DB.wa||[];DB.cand=DB.cand||[];DB.notified=DB.notified||{};
+  if(DB.seed!==2){DB.sched={};for(const d in SEED)DB.sched[d]=SEED[d].map((n,i)=>({id:'d'+d+'p'+i,name:n,start:PERIODS[i][0],end:PERIODS[i][1]}));DB.seed=2;save()}
+  DB.sched=DB.sched||{};
+}
 
 const Blobs=(()=>{
   let db=null;const mem=new Map();
@@ -180,13 +193,24 @@ function diaEditor(d){
     <button class="x" onclick="delMat(${d},'${it.id}')" aria-label="Quitar">✕</button></div>`).join('')}
   <button class="btn ghost small" onclick="addMat(${d})">+ Agregar materia</button></details>`;
 }
+function taskLine(name){
+  let best=null;const hoy=todayISO();
+  for(const k in DB.log){const e=DB.log[k];if(e.name!==name||!e.due||!e.status||e.status==='nada'||e.due<hoy)continue;if(!best||e.due<best.due)best=e}
+  if(!best)return'';
+  const t=best.status==='extra'?(best.extraType==='otro'?resumen(best.extraText):'Hoja '+best.extraType):resumen(best.text);
+  return `<div class="ht">↳ ${esc(LABEL[best.status]||'')} · ${esc(t||'🎙️ audio')} · revisión ${fmtDue(best.due)}</div>`;
+}
 function horario(){
-  return head('Horario',"go('home')")+`
-  <div class="card img" onclick="document.getElementById('fH').click()">${DB.horario?'<img id="himg" alt="Mi horario">':'📷<br>Toca para elegir la foto de tu horario<br><small>(te pedirá permiso para ver tus imágenes)</small>'}</div>
-  <input type="file" id="fH" accept="image/*" hidden onchange="saveHorario(this)">
-  ${DB.horario?'<button class="btn ghost" onclick="document.getElementById(\'fH\').click()">Cambiar foto</button>':''}
-  <p class="hint">Escribe las materias de cada día en el orden de tu foto. La app usa esto para armar la lista de Tareas.</p>
-  ${ORDEN.map(diaEditor).join('')}`;
+  const bloques=ORDEN.map(d=>{
+    const items=schedOf(d);
+    return `<section class="dia-h"><h3>${DIAS[d]}</h3>${items.map(it=>`<div class="hrow"><span class="hn">${esc(it.name)}</span><small>${it.start}–${it.end}</small>${taskLine(it.name)}</div>`).join('')||'<small class="meta">Sin materias</small>'}</section>`;
+  }).join('');
+  return head('Horario',"go('home')")+
+    (DB.horario?`<div class="card img sm"><img id="himg" alt="Mi horario"></div>`:'')+
+    `<input type="file" id="fH" accept="image/*" hidden onchange="saveHorario(this)">
+    <button class="btn ghost small" onclick="document.getElementById('fH').click()">${DB.horario?'Cambiar foto del horario':'Subir foto del horario'}</button>`+
+    bloques+
+    `<details class="dia" style="margin-top:14px"><summary>Corregir materias</summary>${ORDEN.map(diaEditor).join('')}</details>`;
 }
 async function saveHorario(inp){const f=inp.files[0];if(!f)return;await Blobs.put('horario',f);delete urls.horario;DB.horario=1;save();toast('✓ Horario guardado');render()}
 function addMat(d){st.openDay=d;DB.sched[d]=schedOf(d).concat([{id:uid(),name:'',start:'08:00',end:'09:00'}]);save();render()}
@@ -307,7 +331,7 @@ function calendario(){
     const s=`${y}-${pad(m)}-${pad(d)}`;const ev=map[s]||[];
     cells+=`<button class="d ${s===hoy?'today':''}" onclick="dayTap('${s}')"><span class="num">${d}</span>${ev.slice(0,2).map(x=>`<span class="chip ${x.wa?'wa':''}">${esc(x.name)}</span>`).join('')}${ev.length>2?`<span class="chip">+${ev.length-2}</span>`:''}</button>`;
   }
-  return head('Calendario',"go('home')")+`<div class="mnav"><button class="icon" onclick="moveMonth(-1)" aria-label="Mes anterior">‹</button><b>${MESES[m-1]} ${y}</b><button class="icon" onclick="moveMonth(1)" aria-label="Mes siguiente">›</button></div>
+  return head('Calendario',"go('home')")+remindBar()+`<div class="mnav"><button class="icon" onclick="moveMonth(-1)" aria-label="Mes anterior">‹</button><b>${MESES[m-1]} ${y}</b><button class="icon" onclick="moveMonth(1)" aria-label="Mes siguiente">›</button></div>
   <div class="cal">${['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map(x=>`<span class="dow">${x}</span>`).join('')}${cells}</div>`;
 }
 function moveMonth(n){const[y,m]=st.calM.split('-').map(Number);const d=new Date(y,m-1+n,1);st.calM=`${d.getFullYear()}-${pad(d.getMonth()+1)}`;render()}
@@ -431,8 +455,34 @@ function render(){
   hydrate();
 }
 
+function remindBar(){
+  const ok=('Notification' in window)&&Notification.permission==='granted';
+  return `<button class="btn ghost small" onclick="enableAvisos()">${ok?'🔔 Avisos activados (1 día antes)':'🔔 Activar avisos 1 día antes'}</button>`;
+}
+async function enableAvisos(){
+  if(!('Notification' in window)){toast('Tu navegador no permite avisos');return}
+  const p=await Notification.requestPermission();
+  if(p==='granted'){toast('✓ Avisos activados');checkReminders();render()}else toast('Sin permiso no puedo avisarte');
+}
+async function checkReminders(){
+  if(!('Notification' in window)||Notification.permission!=='granted')return;
+  const manana=addDays(todayISO(),1);
+  const items=[];
+  for(const k in DB.log){const e=DB.log[k];if(e.due===manana&&e.status&&e.status!=='nada')items.push({id:k,name:e.name,sub:resumen(e.text)||LABEL[e.status]})}
+  DB.wa.forEach(w=>{if(w.due===manana)items.push({id:'w:'+w.id,name:w.name,sub:'WhatsApp · '+w.group})});
+  const fresh=items.filter(i=>!DB.notified[i.id+'|'+manana]);
+  if(!fresh.length)return;
+  fresh.forEach(i=>{DB.notified[i.id+'|'+manana]=1});save();
+  const body=fresh.map(i=>i.name+(i.sub?' — '+i.sub:'')).join('\n');
+  try{const reg=await navigator.serviceWorker.ready;await reg.showNotification('Mañana revisan',{body,icon:'icon-192.png',badge:'icon-192.png',tag:'revision-'+manana})}
+  catch(e){try{new Notification('Mañana revisan',{body})}catch(_){}}
+}
+
 initDB();
 render();
+checkReminders();
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkReminders()});
+setInterval(checkReminders,30*60*1000);
 </script>
 <script>if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js")}</script>
 </body>
