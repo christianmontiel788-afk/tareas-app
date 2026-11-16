@@ -370,7 +370,7 @@ function whatsapp(){
   const gs=groupsList();const g=gs.includes(st.waG)?st.waG:gs[0];st.waG=g;
   const list=DB.cand.filter(c=>c.group===g);
   return head('WhatsApp',"go('home')")+`
-  <p class="hint">WhatsApp no deja que una app lea tus chats en directo. Por eso la app usa tus chats exportados: en cada grupo toca ⋮ ▸ Más ▸ Exportar chat ▸ Sin archivos, y sube esos .txt aquí (puedes elegir los tres a la vez). Solo guarda los mensajes que parecen tareas.</p>
+  <p class="hint">Android: en WhatsApp abre el chat ▸ ⋮ ▸ Más ▸ Exportar chat ▸ Sin archivos, y en el menú Compartir elige <b>Tareas</b>. La app importa las tareas sola. Si no aparece, usa el botón de abajo y sube el .txt. (En iPhone solo funciona el botón.)</p>
   <label class="btn" style="margin-top:0;cursor:pointer">Subir chats exportados (.txt)<input type="file" accept=".txt,text/plain" multiple hidden onchange="importChats(this)"></label>
   ${gs.length?`<div class="chips">${gs.map((x,i)=>`<button class="gchip ${x===g?'on':''}" onclick="pickG(${i})">${esc(x)}</button>`).join('')}</div>`:'<p class="empty">Todavía no hay chats. Sube un .txt para empezar.</p>'}
   ${list.map(c=>`<div class="msg"><div class="meta">${fmtDue(c.date)} · ${esc(c.sender||'Grupo')}</div><p>${esc(c.text.slice(0,300))}</p><div class="row2"><button class="btn small" onclick="openAddWA('${c.id}')">Añadir</button><button class="btn ghost small" onclick="dropC('${c.id}')">Descartar</button></div></div>`).join('')}
@@ -478,8 +478,35 @@ async function checkReminders(){
   catch(e){try{new Notification('Mañana revisan',{body})}catch(_){}}
 }
 
+async function importShared(){
+  try{
+    const inbox=await caches.open('share-inbox');
+    const keys=await inbox.keys();
+    const seen=new Set([...DB.cand,...DB.wa].map(c=>c.group+'|'+c.date+'|'+c.sender+'|'+c.text.slice(0,40)));
+    let added=0;
+    for(const req of keys){
+      const res=await inbox.match(req);
+      if(!res)continue;
+      const group=decodeURIComponent(res.headers.get('X-Name')||'WhatsApp.txt').replace(/^WhatsApp (Chat|chat) - /i,'').replace(/\.txt$/i,'').trim()||'Grupo';
+      for(const m of parseWA(await res.text())){
+        if(!KW.test(m.text))continue;
+        const k=group+'|'+m.date+'|'+m.sender+'|'+m.text.slice(0,40);
+        if(seen.has(k))continue;seen.add(k);
+        DB.cand.push({id:uid(),group,date:m.date,sender:m.sender,text:m.text,due:guessDue(m.text,m.date)});added++;
+      }
+      await inbox.delete(req);
+    }
+    save();
+    st.view='whatsapp';st.sheet=null;
+    toast(added?`✓ ${added} posibles tareas de WhatsApp`:'No encontré tareas nuevas en ese chat');
+  }catch(e){toast('No pude leer el chat compartido')}
+  history.replaceState(null,'',location.pathname);
+  render();
+}
+
 initDB();
 render();
+if(new URLSearchParams(location.search).has('shared'))importShared();
 checkReminders();
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkReminders()});
 setInterval(checkReminders,30*60*1000);
