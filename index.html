@@ -255,7 +255,7 @@ function formTexto(it){
   <div class="row2"><button class="btn ghost" id="recBtn" onclick="toggleRec()">🎙️ Grabar audio</button><label class="btn ghost" style="margin:14px 0 0;cursor:pointer">Subir audio<input type="file" accept="audio/*" hidden onchange="upAudio(this)"></label></div>
   <div id="audioBox"></div>
   <label>¿Para qué día es?</label><input type="date" id="tdue" value="${e.due||''}">
-  <button class="btn" onclick="saveTexto()">Guardar</button>`;
+  <button class="btn" onclick="saveTexto()">Guardar</button><button class="btn danger" onclick="cancelForm()">Cancelar tarea</button>`;
 }
 let rec=null,chunks=[];
 async function toggleRec(){
@@ -301,7 +301,7 @@ function formExtra(it){
   <div class="opts">${opts.map(([k,l])=>`<button class="opt ${t===k?'on':''}" onclick="st.extraType='${k}';render()"><span><b>${l}</b></span>${t===k?'<span class="tick">✓</span>':''}</button>`).join('')}</div>
   ${t==='A3'||t==='A4'?`<label>Cantidad</label><input type="number" id="ecant" min="1" value="${e.cant||1}">`:''}
   ${t==='otro'?`<label>Escribe qué necesitas</label><textarea id="etxt">${esc(e.extraText||'')}</textarea>`:''}
-  ${t?`<label>¿Para qué día es?</label><input type="date" id="edue" value="${e.due||''}"><button class="btn" onclick="saveExtra()">Guardar</button>`:''}`;
+  ${t?`<label>¿Para qué día es?</label><input type="date" id="edue" value="${e.due||''}"><button class="btn" onclick="saveExtra()">Guardar</button><button class="btn danger" onclick="cancelForm()">Cancelar tarea</button>`:''}`;
 }
 function saveExtra(){
   const it=curItem(),t=st.extraType;
@@ -511,11 +511,16 @@ function cancelBtn(){
   return `<button class="btn danger" onclick="askCancel(logKey(st.day,st.item))">Cancelar tarea</button>`;
 }
 function askCancel(ref){st.sheet={type:'cancel',ref};render()}
+function cancelForm(){
+  const k=logKey(st.day,st.item);
+  if(curEntry().status){askCancel(k);return}
+  st.mode='menu';st.draftAudio=null;render();
+}
 function cancelKey(k){
   const e=DB.log[k]||{};
   if(e.audio)Blobs.del(e.audio);
   DB.log[k]={name:e.name};save();
-  st.sheet=null;toast('Tarea cancelada');render();
+  st.sheet=null;st.mode='menu';st.draftAudio=null;toast('Tarea cancelada');render();
 }
 function changeDue(ref){
   const e=DB.log[ref];if(!e)return;
