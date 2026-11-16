@@ -194,11 +194,11 @@ function diaEditor(d){
   <button class="btn ghost small" onclick="addMat(${d})">+ Agregar materia</button></details>`;
 }
 function taskLine(name){
-  let best=null;const hoy=todayISO();
-  for(const k in DB.log){const e=DB.log[k];if(e.name!==name||!e.due||!e.status||e.status==='nada'||e.due<hoy)continue;if(!best||e.due<best.due)best=e}
+  let best=null,bestKey=null;const hoy=todayISO();
+  for(const k in DB.log){const e=DB.log[k];if(e.name!==name||!e.due||!e.status||e.status==='nada'||e.due<hoy)continue;if(!best||e.due<best.due){best=e;bestKey=k}}
   if(!best)return'';
   const t=best.status==='extra'?(best.extraType==='otro'?resumen(best.extraText):'Hoja '+best.extraType):resumen(best.text);
-  return `<div class="ht">↳ ${esc(LABEL[best.status]||'')} · ${esc(t||'🎙️ audio')} · revisión ${fmtDue(best.due)}</div>`;
+  return `<div class="ht" onclick="openNote('${bestKey}')">↳ ${esc(LABEL[best.status]||'')} · ${esc(t||'🎙️ audio')} · revisión ${fmtDue(best.due)} ✎</div>`;
 }
 function horario(){
   const bloques=ORDEN.map(d=>{
@@ -236,7 +236,7 @@ function materia(){
   const e=curEntry();
   const opts=[['nada','Nada','Marcar que no hay nada'],['cuaderno','Cuaderno','Escribir o grabar la tarea'],['carpeta','Carpeta','Escribir o grabar la tarea'],['extra','Materiales extra','Hojas A3, A4 u otro']];
   return head(esc(it.name),"go('tareas')")+`<p class="sub" style="text-align:center">${fmtHora(it)}</p><div class="opts">`+
-    opts.map(([k,t,d])=>`<button class="opt ${e.status===k?'on':''}" onclick="pick('${k}')"><span><b>${t}</b><small>${d}</small></span>${e.status===k?'<span class="tick">✓</span>':''}</button>`).join('')+`</div>`;
+    opts.map(([k,t,d])=>`<button class="opt ${e.status===k?'on':''}" onclick="pick('${k}')"><span><b>${t}</b><small>${d}</small></span>${e.status===k?'<span class="tick">✓</span>':''}</button>`).join('')+`</div>`+cancelBtn();
 }
 function pick(k){
   const e=curEntry();
@@ -357,7 +357,7 @@ function noteBody(ref){
   return `<small class="meta">${LABEL[e.status]||''} · tarea del ${fmtDay(cd)}</small><h3>${esc(e.name)}</h3>
   <div class="note">${cont||'(sin texto)'}</div>
   ${e.audio?`<audio controls data-audio="${e.audio}"></audio>`:''}
-  <small class="meta">Se revisa: ${e.due?fmtDue(e.due):'sin fecha'}</small>
+  <small class="meta">Se revisa: ${e.due?fmtDue(e.due):'sin fecha'}</small><label>Cambiar fecha de revisión</label><input type="date" id="ndue" value="${e.due||''}"><button class="btn small" onclick="changeDue('${ref}')">Guardar fecha</button><button class="btn danger small" onclick="askCancel('${ref}')">Cancelar tarea</button>
   <button class="btn ghost" onclick="editFromNote('${cd}','${iid}')">Editar en Tareas</button>`;
 }
 function openNote(ref){st.sheet={type:'note',ref};render()}
@@ -441,6 +441,7 @@ function sheetHTML(){
   if(s.type==='pick')body=`<h3>¿Cuál quieres ver?</h3>`+s.refs.map(r=>{const i=refInfo(r);return `<button class="row" onclick="openNote('${r}')"><span class="n">${esc(i.name)}</span><span class="s">${esc(i.sub)}</span></button>`}).join('');
   if(s.type==='note')body=noteBody(s.ref);
   if(s.type==='addwa')body=addWABody(s.id);
+  if(s.type==='cancel')body=`<h3>¿Cancelar esta tarea?</h3><p class="note">Se quita del calendario y de Horario. La materia queda sin anotar.</p><button class="btn danger" onclick="cancelKey('${s.ref}')">Sí, cancelar tarea</button>`;
   return `<div class="sheet-bg" onclick="if(event.target===this){st.sheet=null;render()}"><div class="sheet">${body}<button class="btn ghost" onclick="st.sheet=null;render()">Cerrar</button></div></div>`;
 }
 async function hydrate(){
@@ -474,8 +475,8 @@ async function checkReminders(){
   if(!fresh.length)return;
   fresh.forEach(i=>{DB.notified[i.id+'|'+manana]=1});save();
   const body=fresh.map(i=>i.name+(i.sub?' — '+i.sub:'')).join('\n');
-  try{const reg=await navigator.serviceWorker.ready;await reg.showNotification('Mañana revisan',{body,icon:'icon-192.png',badge:'icon-192.png',tag:'revision-'+manana})}
-  catch(e){try{new Notification('Mañana revisan',{body})}catch(_){}}
+  try{const reg=await navigator.serviceWorker.ready;await reg.showNotification('Mañana revisan',{body,icon:'icon-192.png',badge:'icon-192.png',tag:'revision-'+manana,renotify:true,requireInteraction:true,silent:false,vibrate:[300,120,300]})}
+  catch(e){try{new Notification('Mañana revisan',{body,silent:false,vibrate:[300,120,300]})}catch(_){}}
 }
 
 async function importShared(){
@@ -502,6 +503,25 @@ async function importShared(){
   }catch(e){toast('No pude leer el chat compartido')}
   history.replaceState(null,'',location.pathname);
   render();
+}
+
+function cancelBtn(){
+  const e=curEntry();
+  if(!e.status||e.status==='nada')return'';
+  return `<button class="btn danger" onclick="askCancel(logKey(st.day,st.item))">Cancelar tarea</button>`;
+}
+function askCancel(ref){st.sheet={type:'cancel',ref};render()}
+function cancelKey(k){
+  const e=DB.log[k]||{};
+  if(e.audio)Blobs.del(e.audio);
+  DB.log[k]={name:e.name};save();
+  st.sheet=null;toast('Tarea cancelada');render();
+}
+function changeDue(ref){
+  const e=DB.log[ref];if(!e)return;
+  const v=document.getElementById('ndue').value||null;
+  e.due=v;e.updated=Date.now();save();
+  st.sheet=null;toast(v?'✓ Fecha cambiada (también en Horario y Calendario)':'Fecha quitada');render();
 }
 
 initDB();
